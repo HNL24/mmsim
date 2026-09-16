@@ -8,7 +8,7 @@ An event-driven backtester that replays one day of NASDAQ order-book data (LOBST
 
 ## Method
 
-**Data.** LOBSTER free sample, AAPL, 2012-06-21, 10 levels: 400,391 messages → 634,638 canonical events (600,020 level updates, 34,618 trades with aggressor side). Prices are integer ticks ($0.01), times int64 nanoseconds, quantities shares; no floats inside the engine. Replay of the event stream reproduces the source book with zero mismatches at all 10 levels (`scripts/validate_replay.py`). 372 hidden executions at sub-penny midpoints were dropped. Details in `data/README.md`.
+**Data.** LOBSTER free sample, AAPL, 2012-06-21, 10 levels: 400,391 messages → 634,638 canonical events (600,020 level updates, 34,618 trades with aggressor side). Prices are integer ticks (\$0.01), times int64 nanoseconds, quantities shares; no floats inside the engine. Replay of the event stream reproduces the source book with zero mismatches at all 10 levels (`scripts/validate_replay.py`). 372 hidden executions at sub-penny midpoints were dropped. Details in `data/README.md`.
 
 **Windows.** Calibration 09:30–12:06 (used for $A$, $k$, $\sigma_{\text{cal}}$ and the choice of $\gamma$), a 5-minute gap, evaluation 12:11–16:00 (reported). No reported parameter was chosen on evaluation data.
 
@@ -19,11 +19,87 @@ An event-driven backtester that replays one day of NASDAQ order-book data (LOBST
 - Fixed 100 shares per side, cap $|q| \le 500$ (bid suppressed at the long cap, ask at the short cap). Requote when the mid moves, inventory changes, or 500 ms elapse; unchanged prices keep their queue position.
 - Fees: 0 bps. NASDAQ paid maker rebates in 2012; we ignore both fees and rebates so PnL is not flattered. E5 shows what a 1 bps or 10 bps fee would do.
 
-**Strategies.** Naive: $\text{mid} \pm h$ with $h$ set equal to the A–S half-spread at $q=0$ (3 ticks), so E1 isolates the inventory skew. A–S: reservation price $r = s - q\gamma\sigma^2\tau$, spread $\delta^* = \gamma\sigma^2\tau + \tfrac{2}{\gamma}\ln(1+\gamma/k)$, constant horizon $\tau = 60$ s, $\sigma$ from a 300 s trailing realised-variance estimator sampled at 1 s (ticks/√s). A construction-time assertion checks $\delta^*(q=0)$ lands in 0.5–50 ticks so unit errors abort the run.
+**Strategies.** The naive quoter is symmetric about the mid $m$ and ignores inventory:
 
-**Calibration.** For $\delta = 1\ldots40$ ticks, count trades in the calibration window that would have filled a resting order at $\text{mid} \pm \delta$, pool the sides, fit $\ln\lambda = \ln A - k\delta$ over grid points with ≥ 30 events: **$A = 1.53$ fills/s, $k = 0.293$ /tick, $R^2 = 0.987$** on $\delta \in [1, 21]$; $\sigma_{\text{cal}} = 4.09$ ticks/√s. Buy aggressors reach further from the mid than sellers (visible in the figure); sides are pooled.
+$$
+\text{bid} = m - h, \qquad \text{ask} = m + h
+$$
+
+with $h$ set equal to the A–S half-spread at $q = 0$ (3 ticks), so E1 isolates the effect of inventory skew.
+
+Avellaneda–Stoikov (2008) takes the mid $s$, inventory $q$, volatility $\sigma$, risk aversion $\gamma$, fill-intensity decay $k$ and time-to-horizon $\tau = T - t$. The reservation price shifts the mid against the current position:
+
+$$
+r(s, q, t) = s - q\,\gamma\,\sigma^2\,\tau
+$$
+
+The optimal total spread has an inventory-risk term and a fill-intensity term:
+
+$$
+\delta^*(t) = \gamma\,\sigma^2\,\tau + \frac{2}{\gamma}\ln\!\left(1 + \frac{\gamma}{k}\right)
+$$
+
+and the quotes are centred on the reservation price:
+
+$$
+\text{bid} = r - \frac{\delta^*}{2}, \qquad \text{ask} = r + \frac{\delta^*}{2}
+$$
+
+The horizon is held constant at $\tau = 60$ s, the standard practical choice, so $\gamma$ absorbs the scale instead of quotes collapsing to zero width at the close. Volatility is a 300 s trailing realised variance of the mid sampled every 1 s to suppress microstructure noise:
+
+$$
+\hat\sigma^2 = \frac{1}{W}\sum_{j}\left(\Delta m_j\right)^2, \qquad \sigma = \sqrt{\hat\sigma^2}
+$$
+
+Units: $s$, $r$, bid, ask and $\delta^*$ in ticks; $q$ in shares; $\sigma$ in $\text{ticks}/\sqrt{\text{s}}$; $\tau$ in seconds; $\gamma$ in $\text{ticks}^{-1}\,\text{share}^{-1}$; $k$ in $\text{ticks}^{-1}$. Both terms of $\delta^*$ then come out in ticks. A construction-time assertion checks that $\delta^*(q = 0)$ lands in 0.5–50 ticks so unit errors abort the run instead of producing 0.001-tick or 10,000-tick spreads.
+
+**Calibration.** A–S assumes a resting order $\delta$ ticks from the mid is filled by a Poisson process whose intensity decays exponentially with distance:
+
+$$
+\lambda(\delta) = A\,e^{-k\delta}
+$$
+
+For $\delta = 1, \dots, 40$ ticks, count the trades in the calibration window that would have filled a resting order at $\text{mid} \pm \delta$ (prints at or through that price by the opposite aggressor), divide by the window length to get $\hat\lambda(\delta)$ per second, pool the two sides, and fit by OLS over grid points with at least 30 events:
+
+$$
+\ln\hat\lambda(\delta) = \ln A - k\,\delta
+$$
+
+Result: $A = 1.53$ fills/s, $k = 0.293$ per tick, $R^2 = 0.987$ on $\delta \in [1, 21]$; $\sigma_{\text{cal}} = 4.09$ $\text{ticks}/\sqrt{\text{s}}$. Buy aggressors reach further from the mid than sellers (visible in the figure); sides are pooled.
 
 ![calibration fit](results/readme/calibration_fit.png)
+
+**PnL accounting.** With cash $C_t$, inventory $q_t$ and mid $m_t$ (all integers, $C_0 = q_0 = 0$), mark-to-market PnL at every event is
+
+$$
+\text{PnL}_t = C_t + q_t\,m_t - \text{Fees}_t
+$$
+
+A fill at price $p$ for quantity $x$ when the mid is $m_{t_f}$ earns spread capture against the mid at fill time:
+
+$$
+\text{SC} = \begin{cases} (m_{t_f} - p)\,x & \text{buy} \\ (p - m_{t_f})\,x & \text{sell} \end{cases}
+$$
+
+Inventory carry accumulates between events on the position held *before* each mid move:
+
+$$
+\text{IC}_T = \sum_{t} q_{t^-}\,(m_t - m_{t^-})
+$$
+
+These satisfy an identity that holds exactly in integer arithmetic and is enforced by a test:
+
+$$
+\text{PnL}_T = \sum_{\text{fills}} \text{SC} + \text{IC}_T - \text{Fees}_T
+$$
+
+Adverse selection at horizon $\tau$ is the mid move against us after each fill,
+
+$$
+\text{AS}_\tau = \begin{cases} (m_{t_f} - m_{t_f + \tau})\,x & \text{buy} \\ (m_{t_f + \tau} - m_{t_f})\,x & \text{sell} \end{cases}
+$$
+
+reported at $\tau \in \{1, 5, 30\}$ s. The realised spread at horizon $\tau$ is $\text{SC} - \text{AS}_\tau$; the gap between the quoted half-spread and the realised half-spread is the headline "cost of informed flow" number.
 
 ## Results (evaluation window, 12:11–16:00)
 
@@ -87,7 +163,7 @@ Zero latency is *worse* here, not better: it produces more fills, and fills are 
 | hypothetical 1 bps | 15,952 | −24,120 |
 | hypothetical 10 bps (crypto-spot-like) | 159,387 | −167,556 |
 
-At a $580 share price, 2,935 fills of ~100 shares is ~$160 M notional; even 1 bps dwarfs every other term. Any crypto-spot version of this strategy is fee-dominated.
+At a \$580 share price, 2,935 fills of ~100 shares is ~\$160 M notional; even 1 bps dwarfs every other term. Any crypto-spot version of this strategy is fee-dominated.
 
 ## Limitations
 
@@ -109,7 +185,7 @@ uv run python scripts/calibrate.py              # A, k, sigma_cal -> results/cal
 uv run python scripts/run_experiments.py        # E2 -> E1 -> E4 -> E5 -> results/<exp>/summary.csv + figures
 ```
 
-Raw LOBSTER files (`AAPL_2012-06-21_34200000_57600000_{message,orderbook}_10.csv`) go in `data/raw/`; see `data/README.md`. Design decisions and every deviation from the spec are dated in `DECISIONS.md`.
+Raw LOBSTER files (`AAPL_2012-06-21_34200000_57600000_{message,orderbook}_10.csv`) go in `data/raw/`; see `data/README.md`.
 
 ## Layout
 
