@@ -40,7 +40,7 @@ engine:
   requote_interval_ms: 500
   order_qty: 100                         # shares per side
   q_max: 500                             # shares, inventory cap
-  queue_cancel_model: off                # off | proportional
+  queue_cancel_model: "off"              # "off" | proportional (quoted: bare off is YAML false)
   # Fees are always charged. Equities maker fee is a PLACEHOLDER until
   # data/README.md records the venue schedule (NASDAQ rebates makers; we use 0).
   fee_bps: 0.0
