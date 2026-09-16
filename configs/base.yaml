@@ -1,0 +1,47 @@
+# Base configuration for mmsim. Strategy configs (naive.yaml, as_default.yaml)
+# are merged on top of this by scripts/run_backtest.py.
+#
+# Values marked PLACEHOLDER are finalised at M1 once the LOBSTER files are
+# on disk and validate_replay.py has passed.
+
+dataset:
+  name: lobster_aapl_2012-06-21          # PLACEHOLDER: confirm ticker after download
+  source: lobster
+  raw_dir: data/raw/lobster
+  processed_path: data/processed/lobster_aapl_2012-06-21/events.parquet
+  levels: 10                             # LOBSTER sample depth
+  # LOBSTER prices are in units of 1e-4 USD. Tick = 100 units = $0.01.
+  price_unit_per_tick: 100
+  tick_value_usd: 0.01
+  base_unit: share
+  # Quote-currency minor unit used for cash/fees/PnL accounting (integer cents).
+  quote_minor_unit_usd: 0.01
+  # Trading day and session bounds, America/New_York (EDT, UTC-4 on this date).
+  date: "2012-06-21"
+  session_open_ns:  1340285400000000000  # 09:30:00
+  session_close_ns: 1340308800000000000  # 16:00:00
+
+# Disjoint windows in ts_ns (int64 nanoseconds since epoch).
+# Calibration = first ~40% of the session; evaluation starts after a 5-minute gap.
+windows:
+  calibration:
+    start_ns: 1340285400000000000        # 09:30:00
+    end_ns:   1340294760000000000        # 12:06:00
+  evaluation:
+    start_ns: 1340295060000000000        # 12:11:00
+    end_ns:   1340308800000000000        # 16:00:00
+
+engine:
+  latency_ms: 100                        # symmetric on posts and cancels; 0 prints a warning
+  requote_interval_ms: 500
+  order_qty: 100                         # shares per side
+  q_max: 500                             # shares, inventory cap
+  queue_cancel_model: off                # off | proportional
+  # Fees are always charged. Equities maker fee is a PLACEHOLDER until
+  # data/README.md records the venue schedule (NASDAQ rebates makers; we use 0).
+  fee_bps: 0.0
+
+pnl:
+  adverse_selection_horizons_s: [1, 5, 30]
+
+seed: 0

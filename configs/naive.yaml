@@ -1,0 +1,4 @@
+# Naive symmetric quoter. Merged on top of base.yaml.
+strategy:
+  name: naive
+  half_spread_ticks: 2                   # PLACEHOLDER: set to A-S delta*/2 at q=0 after M3 (E1)

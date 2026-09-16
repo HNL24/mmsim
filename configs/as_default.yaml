@@ -1,0 +1,11 @@
+# Avellaneda-Stoikov quoter. Merged on top of base.yaml. Filled in at M3.
+strategy:
+  name: avellaneda_stoikov
+  gamma: 0.01                            # PLACEHOLDER: ticks^-1 * share^-1, chosen by E2 on calibration window
+  horizon: constant                      # constant | finite
+  tau0_s: 60                             # T - t when horizon == constant
+  sigma_estimator:
+    name: rolling_rv
+    window_s: 300
+    sample_s: 1
+  calibration_path: results/calibration/params.yaml   # A, k written by scripts/calibrate.py
