@@ -23,5 +23,6 @@ __pycache__/
 .vscode/
 .idea/
 
-# local working notes
+# local working notes and exploration scripts
 DECISIONS.md
+observing_the_model/
