@@ -22,3 +22,6 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
+# local working notes
+DECISIONS.md

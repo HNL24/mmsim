@@ -61,7 +61,7 @@ class NaiveQuoter:
 
 
 class ASQuoter:
-    """Avellaneda–Stoikov (2008) quotes. See Avellaneda & Stoikov, Quant. Finance 8(3), 2008.
+    """Avellaneda–Stoikov (2008) quotes.
 
     Units: ``gamma`` in 1/(ticks·base_unit); ``k`` in 1/ticks; ``sigma`` (from the
     estimator) in ticks/sqrt(s); ``tau0_s`` seconds. Then ``q*gamma*sigma^2*tau``
