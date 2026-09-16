@@ -5,11 +5,14 @@
 # on disk and validate_replay.py has passed.
 
 dataset:
-  name: lobster_aapl_2012-06-21          # PLACEHOLDER: confirm ticker after download
+  name: lobster_aapl_2012-06-21          # Apple AAPL
   source: lobster
-  raw_dir: data/raw/lobster
+  ticker: AAPL
+  raw_dir: data/raw
+  lobster_start_ms: 34200000             # file-name fields: 09:30:00 / 16:00:00 in ms after midnight
+  lobster_end_ms: 57600000
   processed_path: data/processed/lobster_aapl_2012-06-21/events.parquet
-  levels: 10                             # LOBSTER sample depth
+  levels: 10                             # LOBSTER level 10 is what we are using for this backtest
   # LOBSTER prices are in units of 1e-4 USD. Tick = 100 units = $0.01.
   price_unit_per_tick: 100
   tick_value_usd: 0.01
@@ -18,6 +21,7 @@ dataset:
   quote_minor_unit_usd: 0.01
   # Trading day and session bounds, America/New_York (EDT, UTC-4 on this date).
   date: "2012-06-21"
+  utc_offset_hours: -4                   # EDT
   session_open_ns:  1340285400000000000  # 09:30:00
   session_close_ns: 1340308800000000000  # 16:00:00
 
