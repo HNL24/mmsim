@@ -5,7 +5,8 @@ from hypothesis import strategies as st
 
 from mm.engine import run
 from mm.pnl import check_identity, inventory_carry_x2, mark_to_market_x2, spread_capture_x2
-from mm.strategy import NaiveQuoter
+from mm.strategy import ASQuoter, NaiveQuoter
+from mm.vol import ConstantVol
 
 
 def _assert_identity_every_event(res):
@@ -16,6 +17,14 @@ def _assert_identity_every_event(res):
         sc_cum = np.cumsum(sc_cum)
     rhs = sc_cum + ev["ic_x2"].to_numpy() - 2 * ev["fees_cum"].to_numpy()
     assert np.array_equal(ev["pnl_x2"].to_numpy(), rhs)
+
+
+def test_identity_with_as_quoter_constant_vol():
+    qt = ASQuoter(gamma=0.01, k=0.5, sigma_estimator=ConstantVol(1.0), tau0_s=30.0)
+    res = run(synthetic_stream(seed=5, n=3000), qt, make_cfg(fee_bps=1.0, q_max=300))
+    assert len(res.fills) > 0
+    assert check_identity(res)
+    _assert_identity_every_event(res)
 
 
 def test_identity_on_synthetic_stream_with_fees():
