@@ -37,13 +37,13 @@ $$
 The optimal total spread has an inventory-risk term and a fill-intensity term:
 
 $$
-\delta^*(t) = \gamma\sigma^2\tau + \frac{2}{\gamma}\ln\left(1 + \frac{\gamma}{k}\right)
+\delta^\ast(t) = \gamma\sigma^2\tau + \frac{2}{\gamma}\ln\left(1 + \frac{\gamma}{k}\right)
 $$
 
 and the quotes are centred on the reservation price:
 
 $$
-\text{bid} = r - \frac{\delta^*}{2}, \qquad \text{ask} = r + \frac{\delta^*}{2}
+\text{bid} = r - \frac{\delta^\ast}{2}, \qquad \text{ask} = r + \frac{\delta^\ast}{2}
 $$
 
 The horizon is held constant at $\tau = 60$ s, the standard practical choice, so $\gamma$ absorbs the scale instead of quotes collapsing to zero width at the close. Volatility is a 300 s trailing realised variance of the mid sampled every 1 s to suppress microstructure noise:
@@ -52,7 +52,7 @@ $$
 \hat\sigma^2 = \frac{1}{W}\sum_{j}\left(\Delta m_j\right)^2, \qquad \sigma = \sqrt{\hat\sigma^2}
 $$
 
-Units: $s$, $r$, bid, ask and $\delta^*$ in ticks; $q$ in shares; $\sigma$ in $\text{ticks}/\sqrt{\text{s}}$; $\tau$ in seconds; $\gamma$ in $\text{ticks}^{-1}\text{share}^{-1}$; $k$ in $\text{ticks}^{-1}$. Both terms of $\delta^*$ then come out in ticks. A construction-time assertion checks that $\delta^*(q = 0)$ lands in 0.5–50 ticks so unit errors abort the run instead of producing 0.001-tick or 10,000-tick spreads.
+Units: $s$, $r$, bid, ask and $\delta^\ast$ in ticks; $q$ in shares; $\sigma$ in $\text{ticks}/\sqrt{\text{s}}$; $\tau$ in seconds; $\gamma$ in $\text{ticks}^{-1}\text{share}^{-1}$; $k$ in $\text{ticks}^{-1}$. Both terms of $\delta^\ast$ then come out in ticks. A construction-time assertion checks that $\delta^\ast(q = 0)$ lands in 0.5–50 ticks so unit errors abort the run instead of producing 0.001-tick or 10,000-tick spreads.
 
 **Calibration.** A–S assumes a resting order $\delta$ ticks from the mid is filled by a Poisson process whose intensity decays exponentially with distance:
 
