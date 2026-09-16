@@ -34,6 +34,18 @@ def test_trade_through_fills_fully():
     assert om.current(BID) is None
 
 
+def test_trade_through_capped_at_print_size_under_trade_qty_model():
+    b = _book()
+    om = OrderManager(
+        latency_ns=100 * MS, order_qty=100, queue_cancel_model="off", through_fill_model="trade_qty"
+    )
+    om.replace(100, 105, ts=0)
+    om.process(100 * MS, b)
+    assert om.on_trade(price=99, qty=10, aggressor=ASK) == [(BID, 100, 10)]
+    assert om.current(BID).qty_remaining == 90
+    assert om.on_trade(price=98, qty=500, aggressor=ASK) == [(BID, 100, 90)]
+
+
 def test_trade_at_level_decrements_queue_then_fills():
     b, om = _book(), _om()
     om.replace(100, 105, ts=0)

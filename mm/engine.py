@@ -49,6 +49,7 @@ class EngineConfig:
     fee_bps: float
     tick_value_minor: int  # quote minor units per tick (1 for $0.01 tick, cents accounting)
     queue_cancel_model: str = "off"  # off | proportional
+    through_fill_model: str = "full"  # full (spec §6.3) | trade_qty (capped at the print size)
     as_horizons_s: tuple[int, ...] = (1, 5, 30)
 
     @classmethod
@@ -67,6 +68,7 @@ class EngineConfig:
             fee_bps=float(en["fee_bps"]),
             tick_value_minor=int(round(tv)),
             queue_cancel_model=_cancel_model(en.get("queue_cancel_model", "off")),
+            through_fill_model=str(en.get("through_fill_model", "full")),
             as_horizons_s=tuple(
                 int(h) for h in cfg.get("pnl", {}).get("adverse_selection_horizons_s", (1, 5, 30))
             ),
@@ -91,9 +93,18 @@ class Order:
 class OrderManager:
     """Our resting orders and the §6.3 queue model. At most one non-cancelling order per side."""
 
-    def __init__(self, latency_ns: int, order_qty: int, queue_cancel_model: str) -> None:
+    def __init__(
+        self,
+        latency_ns: int,
+        order_qty: int,
+        queue_cancel_model: str,
+        through_fill_model: str = "full",
+    ) -> None:
         if queue_cancel_model not in ("off", "proportional"):
             raise ValueError(f"unknown queue_cancel_model {queue_cancel_model!r}")
+        if through_fill_model not in ("full", "trade_qty"):
+            raise ValueError(f"unknown through_fill_model {through_fill_model!r}")
+        self.through_full = through_fill_model == "full"
         self.latency_ns = latency_ns
         self.order_qty = order_qty
         self.proportional = queue_cancel_model == "proportional"
@@ -154,7 +165,9 @@ class OrderManager:
             if not o.active or o.side != -aggressor or o.qty_remaining == 0:
                 continue
             if o.side * (o.price - price) > 0:  # market traded through our level
-                x = o.qty_remaining
+                x = o.qty_remaining if self.through_full else min(remaining_trade, o.qty_remaining)
+                if not self.through_full:
+                    remaining_trade -= x
             elif price == o.price:
                 o.queue_ahead -= remaining_trade
                 if o.queue_ahead >= 0:
@@ -201,7 +214,7 @@ def run(
     if cfg.latency_ns == 0:
         warnings.warn("latency_ms = 0: fills will be unrealistically favourable", stacklevel=2)
     book = OrderBook()
-    om = OrderManager(cfg.latency_ns, cfg.order_qty, cfg.queue_cancel_model)
+    om = OrderManager(cfg.latency_ns, cfg.order_qty, cfg.queue_cancel_model, cfg.through_fill_model)
     tv = cfg.tick_value_minor
     n = len(stream)
 
@@ -297,6 +310,7 @@ def run(
         "fee_bps": cfg.fee_bps,
         "tick_value_minor": tv,
         "queue_cancel_model": cfg.queue_cancel_model,
+        "through_fill_model": cfg.through_fill_model,
         "time_at_cap_ns": time_at_cap,
         "q_final": q,
         "mid_final_x2": last_mid,
