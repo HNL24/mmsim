@@ -43,6 +43,19 @@ def to_grid(bid: float, ask: float) -> tuple[int, int]:
     return math.floor(bid), math.ceil(ask)
 
 
+def book_imbalance(book: BookView) -> float:
+    """Touch imbalance ``(bid_qty - ask_qty) / (bid_qty + ask_qty)`` in ``[-1, 1]``.
+
+    Dimensionless. Positive means more resting size on the bid, i.e. buying
+    pressure. Returns 0 when either side is empty. Uses only the current book.
+    """
+    bb, ba = book.best_bid, book.best_ask
+    if bb is None or ba is None:
+        return 0.0
+    tot = bb[1] + ba[1]
+    return (bb[1] - ba[1]) / tot if tot else 0.0
+
+
 class NaiveQuoter:
     """Symmetric quotes ``mid ± half_spread_ticks``; ignores inventory."""
 
@@ -70,6 +83,12 @@ class ASQuoter:
     ``horizon="constant"`` uses ``T - t = tau0_s``; ``"finite"`` uses the time to
     ``state.t_end_ns``. ``sigma_ref`` (ticks/sqrt(s), from the calibration window)
     is only used for the construction-time units check.
+
+    ``imbalance_beta_ticks`` (ticks per unit of touch imbalance, default 0) shifts
+    the reservation price by ``beta * imbalance`` so quotes lean toward the side
+    the book says the mid is about to move. ``beta`` is the OLS slope of the
+    forward mid move on imbalance, fitted on the calibration window
+    (:func:`mm.calibrate.fit_imbalance`). With ``beta = 0`` this is plain A–S.
     """
 
     def __init__(
@@ -81,9 +100,11 @@ class ASQuoter:
         horizon: str = "constant",
         sigma_ref: float | None = None,
         log_sigma: bool = False,
+        imbalance_beta_ticks: float = 0.0,
     ) -> None:
         if gamma <= 0 or k <= 0 or tau0_s <= 0:
             raise ValueError("gamma, k and tau0_s must be positive")
+        self.imbalance_beta_ticks = float(imbalance_beta_ticks)
         if horizon not in ("constant", "finite"):
             raise ValueError("horizon must be 'constant' or 'finite'")
         self.gamma = float(gamma)
@@ -125,6 +146,8 @@ class ASQuoter:
             else max(state.t_end_ns - state.ts_ns, 0) / 1e9
         )
         r = self.reservation_price(mid_x2 / 2.0, state.q, sigma, tau)
+        if self.imbalance_beta_ticks:
+            r += self.imbalance_beta_ticks * book_imbalance(book)
         half = self.optimal_spread(sigma, tau) / 2.0
         return to_grid(r - half, r + half)
 
@@ -159,5 +182,6 @@ def from_config(strategy_cfg: dict) -> Quoter:
             horizon=str(strategy_cfg.get("horizon", "constant")),
             sigma_ref=None if sigma_ref is None else float(sigma_ref),
             log_sigma=bool(strategy_cfg.get("log_sigma", False)),
+            imbalance_beta_ticks=float(strategy_cfg.get("imbalance_beta_ticks", 0.0)),
         )
     raise NotImplementedError(f"strategy {name!r} not available")

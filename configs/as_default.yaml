@@ -10,3 +10,4 @@ strategy:
     sample_s: 1
   # k (1/ticks) and sigma_cal (units check) are read from here; written by scripts/calibrate.py
   calibration_path: results/calibration/params.yaml
+  imbalance_beta_ticks: 0.0              # ticks per unit touch imbalance; 0 = plain A-S. E6 sets it

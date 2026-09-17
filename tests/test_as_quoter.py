@@ -18,6 +18,7 @@ def _q(sigma=2.0, **kw):
         ConstantVol(sigma),
         tau0_s=p["tau0_s"],
         horizon=p.get("horizon", "constant"),
+        imbalance_beta_ticks=p.get("imbalance_beta_ticks", 0.0),
     )
 
 
@@ -87,3 +88,20 @@ def test_bad_params_rejected():
         ASQuoter(0.0, 0.1, ConstantVol(1.0))
     with pytest.raises(ValueError):
         ASQuoter(0.001, 0.1, ConstantVol(1.0), horizon="weird")
+
+
+def test_imbalance_beta_shifts_quotes_toward_pressure():
+    from mm.strategy import book_imbalance
+
+    heavy_bid = BookView(bids=((990, 300),), asks=((1010, 100),))  # imbalance +0.5
+    heavy_ask = BookView(bids=((990, 100),), asks=((1010, 300),))  # imbalance -0.5
+    assert book_imbalance(heavy_bid) == 0.5 and book_imbalance(heavy_ask) == -0.5
+    assert book_imbalance(BookView(bids=(), asks=((1010, 5),))) == 0.0
+    plain = _q(sigma=3.0)
+    b0, a0 = plain.quote(heavy_bid, _state(0))
+    assert _q(sigma=3.0, imbalance_beta_ticks=0.0).quote(heavy_bid, _state(0)) == (b0, a0)
+    skew = ASQuoter(0.001, 0.1, ConstantVol(3.0), tau0_s=60.0, imbalance_beta_ticks=4.0)
+    b_up, a_up = skew.quote(heavy_bid, _state(0))
+    b_dn, a_dn = skew.quote(heavy_ask, _state(0))
+    assert b_up == b0 + 2 and a_up == a0 + 2  # +4 ticks * 0.5
+    assert b_dn == b0 - 2 and a_dn == a0 - 2

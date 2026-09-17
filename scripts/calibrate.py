@@ -1,4 +1,4 @@
-"""Estimate A, k on the calibration window; write params + fit figure to results/calibration/."""
+"""Estimate A, k and the imbalance slope beta on the calibration window; write params + figures."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 from mm import plotstyle  # noqa: E402
-from mm.calibrate import calibrate  # noqa: E402
+from mm.calibrate import calibrate, fit_imbalance  # noqa: E402
 from mm.config import load_config  # noqa: E402
 from mm.engine import stream_from_frame  # noqa: E402
 from mm.events import LEVEL_SET  # noqa: E402
@@ -45,6 +45,7 @@ def main() -> None:
     ap.add_argument("--max-delta", type=int, default=40)
     ap.add_argument("--min-count", type=int, default=30)
     ap.add_argument("--out", default="results/calibration")
+    ap.add_argument("--imbalance-horizon-s", type=float, default=5.0)
     args = ap.parse_args()
     cfg = load_config(args.config, base=None)
     w = cfg["windows"]["calibration"]
@@ -54,6 +55,7 @@ def main() -> None:
     cal = calibrate(stream, start, end, args.max_delta, args.min_count)
     ts, mid = _mid_path(stream, start, end)
     sigma_cal = realised_vol(ts, mid, sample_s=1.0)
+    imb = fit_imbalance(stream, start, end, horizon_s=args.imbalance_horizon_s, sample_s=1.0)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -69,6 +71,11 @@ def main() -> None:
         "n_trades_bid_side": int(cal.counts_bid[0]),
         "n_trades_ask_side": int(cal.counts_ask[0]),
         "min_count": args.min_count,
+        "beta_imbalance_ticks": round(imb.beta_ticks, 6),
+        "beta_imbalance_intercept_ticks": round(imb.intercept_ticks, 6),
+        "beta_imbalance_r2": round(imb.r2, 4),
+        "beta_imbalance_horizon_s": imb.horizon_s,
+        "beta_imbalance_n": imb.n,
     }
     (out / "params.yaml").write_text(yaml.safe_dump(params, sort_keys=False))
     pd.DataFrame(
@@ -105,6 +112,43 @@ def main() -> None:
     ax.legend(loc="upper right")
     fig.tight_layout()
     fig.savefig(out / "fit.png")
+    plt.close(fig)
+
+    # imbalance -> forward mid move: binned means with the OLS line
+    fig, ax = plt.subplots(figsize=(7, 4.2))
+    edges = np.linspace(-1, 1, 21)
+    centres = 0.5 * (edges[1:] + edges[:-1])
+    idx = np.clip(np.digitize(imb.imbalance, edges) - 1, 0, len(centres) - 1)
+    means = np.array(
+        [
+            imb.move_ticks[idx == b].mean() if (idx == b).any() else np.nan
+            for b in range(len(centres))
+        ]
+    )
+    counts = np.array([(idx == b).sum() for b in range(len(centres))])
+    ax.scatter(
+        centres,
+        means,
+        s=np.clip(counts / counts.max() * 120, 8, 120),
+        zorder=3,
+        label=f"binned mean (marker size ∝ n, N = {imb.n:,})",
+    )
+    xs = np.linspace(-1, 1, 50)
+    ax.plot(
+        xs,
+        imb.intercept_ticks + imb.beta_ticks * xs,
+        "-",
+        color=plotstyle.SERIES[2],
+        label=f"OLS: β = {imb.beta_ticks:.2f} ticks per unit imbalance, R² = {imb.r2:.3f}",
+    )
+    ax.axhline(0, color=plotstyle.INK_2, lw=0.8)
+    ax.set_xlabel("touch imbalance  (bid size − ask size) / (bid size + ask size)")
+    ax.set_ylabel(f"mid move over next {imb.horizon_s:g} s  (ticks)")
+    ax.set_title("Forward mid move vs book imbalance, calibration window")
+    ax.legend(loc="upper left")
+    fig.tight_layout()
+    fig.savefig(out / "imbalance_fit.png")
+    plt.close(fig)
 
     print(
         f"A = {cal.A:.4g} fills/s   k = {cal.k:.4g} /tick   R² = {cal.r2:.3f}   "
@@ -114,7 +158,11 @@ def main() -> None:
         f"sigma_cal = {sigma_cal:.4g} ticks/sqrt(s)   "
         f"trades: {cal.counts_bid[0]} bid-side, {cal.counts_ask[0]} ask-side"
     )
-    print(f"wrote {out}/params.yaml, intensity.csv, fit.png")
+    print(
+        f"beta_imbalance = {imb.beta_ticks:.3g} ticks per unit imbalance over "
+        f"{imb.horizon_s:g} s   R² = {imb.r2:.3f}   n = {imb.n}"
+    )
+    print(f"wrote {out}/params.yaml, intensity.csv, fit.png, imbalance_fit.png")
 
 
 if __name__ == "__main__":

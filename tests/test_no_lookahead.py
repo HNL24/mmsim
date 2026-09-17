@@ -31,6 +31,7 @@ def _quoters():
         NaiveQuoter(3),
         ASQuoter(0.01, 0.5, ConstantVol(1.0), tau0_s=30.0),
         ASQuoter(0.01, 0.5, RollingRV(window_s=5, sample_s=0.5), tau0_s=30.0, sigma_ref=1.0),
+        ASQuoter(0.01, 0.5, ConstantVol(1.0), tau0_s=30.0, imbalance_beta_ticks=2.0),
     ]
 
 

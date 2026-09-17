@@ -50,3 +50,41 @@ def test_window_bounds_respected():
 def test_fit_requires_enough_points():
     with pytest.raises(ValueError):
         fit_intensity(np.array([2, 2, 2]), np.array([2]), window_s=10.0, min_count=30)
+
+
+def _imbalance_stream(beta: float, n: int, seed: int = 0):
+    """One book state per second. The mid move over the next second is exactly
+    ``beta * imbalance`` (imbalance in {-0.5, 0, 0.5}, so moves are integer ticks)."""
+    rng = np.random.default_rng(seed)
+    imbs = rng.choice([-0.5, 0.0, 0.5], size=n)
+    ev, p = [], 1000
+    prev = None
+    for t in range(n):
+        if prev is not None:
+            ev += [(t * S, 0, BID, prev, 0, 0), (t * S, 0, ASK, prev + 2, 0, 0)]
+        i = imbs[t]
+        ev += snapshot(t * S, {p: int(100 * (1 + i))}, {p + 2: int(100 * (1 - i))})
+        prev = p
+        p += int(round(beta * i))
+    return ev
+
+
+def test_fit_imbalance_recovers_slope():
+    from mm.calibrate import fit_imbalance, sample_touch
+
+    ev = _imbalance_stream(beta=10.0, n=400)
+    mid, imb = sample_touch(ev, 0, 400 * S, sample_s=1.0)
+    assert len(mid) == 400 and not np.isnan(mid).any()
+    fit = fit_imbalance(ev, 0, 400 * S, horizon_s=1.0, sample_s=1.0)
+    assert fit.beta_ticks == pytest.approx(10.0, abs=1e-9)
+    assert fit.intercept_ticks == pytest.approx(0.0, abs=1e-9)
+    assert fit.r2 == pytest.approx(1.0)
+    assert fit.n == 399
+
+
+def test_sample_touch_sees_only_events_at_or_before_grid_time():
+    from mm.calibrate import sample_touch
+
+    ev = snapshot(0, {1000: 100}, {1002: 100}) + snapshot(S + 1, {1000: 300}, {1002: 100})
+    mid, imb = sample_touch(ev, 0, 3 * S, sample_s=1.0)
+    assert imb.tolist() == [0.0, 0.0, 0.5]  # the t=1s+1ns update is first visible at t=2s
