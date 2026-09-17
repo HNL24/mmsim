@@ -15,9 +15,9 @@ An event-driven backtester that replays one day of NASDAQ order-book data (LOBST
 **Fill model, stated bluntly.**
 - Our orders never move the historical book and never cross the spread (maker only).
 - An order becomes live 100 ms after it is sent; a cancel takes effect 100 ms after it is sent (the order can still be filled meanwhile). An order that would cross the market when it arrives is rejected (post-only). At most one unacknowledged order per side.
-- On arrival, `queue_ahead` = displayed size at our price (0 if we improve the book). A trade **at** our price consumes queue first, then fills us. A trade **through** our price fills our whole order (spec default; the alternative that caps the fill at the print size is reported in E4). Cancellations at our price are assumed to come from *behind* us (conservative; a proportional model is reported in E4).
+- On arrival, `queue_ahead` = displayed size at our price (0 if we improve the book). A trade **at** our price consumes queue first, then fills us. A trade **through** our price fills our whole order (spec default; the alternative that caps the fill at the print size is reported in E3). Cancellations at our price are assumed to come from *behind* us (conservative; a proportional model is reported in E3).
 - Fixed 100 shares per side, cap $|q| \le 500$ (bid suppressed at the long cap, ask at the short cap). Requote when the mid moves, inventory changes, or 500 ms elapse; unchanged prices keep their queue position.
-- Fees: 0 bps. NASDAQ paid maker rebates in 2012; we ignore both fees and rebates so PnL is not flattered. E5 shows what a 1 bps or 10 bps fee would do.
+- Fees: 0 bps. NASDAQ paid maker rebates in 2012; we ignore both fees and rebates so PnL is not flattered. E4 shows what a 1 bps or 10 bps fee would do.
 
 **Strategies.** The naive quoter is symmetric about the mid $m$ and ignores inventory:
 
@@ -103,6 +103,15 @@ reported at $\tau \in \{1, 5, 30\}$ s. The realised spread at horizon $\tau$ is 
 
 ## Results (evaluation window, 12:11–16:00)
 
+**Experiments.** Four experiments, each answering one question on the same data and fill model. All parameters were fixed on the calibration window before any evaluation-window result was looked at.
+
+| | question | window |
+|---|---|---|
+| E1 | What does skewing quotes on inventory buy, holding everything else fixed? Naive vs A–S with the same half-spread at $q = 0$. | evaluation |
+| E2 | Which $\gamma$ do we commit to, and how does it trade PnL against inventory control? | calibration only |
+| E3 | How much do the results depend on fill-model assumptions that historical data cannot verify: latency, queue cancellations, through-fills? | evaluation |
+| E4 | Would the strategy survive a venue that charges real maker fees? | evaluation |
+
 ### E1 — Naive vs Avellaneda–Stoikov ($\gamma = 3\times10^{-5}$ from E2)
 
 | metric | Naive | A–S |
@@ -141,7 +150,7 @@ The spec's selection rule (PnL per unit inventory std) degenerates when every $\
 
 ![gamma sweep](results/readme/gamma_sweep.png)
 
-### E4 — fill-model sensitivity (A–S, evaluation window)
+### E3 — fill-model sensitivity (A–S, evaluation window)
 
 | latency (ms) | 0 | 50 | **100** | 250 | 500 |
 |---|---:|---:|---:|---:|---:|
@@ -155,7 +164,7 @@ Zero latency is *worse* here, not better: it produces more fills, and fills are 
 
 ![pnl vs latency](results/readme/pnl_vs_latency.png)
 
-### E5 — fees
+### E4 — fees
 
 | fee | total fees (USD) | PnL (USD) |
 |---|---:|---:|
@@ -169,7 +178,7 @@ At a \$580 share price, 2,935 fills of ~100 shares is ~\$160 M notional; even 1 
 
 - One day, one symbol. Everything above is a single sample from a day on which AAPL trended down; the sign of inventory carry is not a property of the strategy.
 - Historical fills cannot move the book, and our quotes never change other participants' behaviour (no market impact, no reaction to our presence).
-- The queue model is conservative in one direction (cancellations assumed behind us) and the through-fill rule is aggressive in the other (a small print through us fills our whole order); E4 bounds both.
+- The queue model is conservative in one direction (cancellations assumed behind us) and the through-fill rule is aggressive in the other (a small print through us fills our whole order); E3 bounds both.
 - Only 10 book levels are visible; a level scrolling out of the window is treated as removed.
 - Neither strategy uses any adverse-selection signal. A–S assumes uninformed Poisson flow, which the decomposition shows is false here.
 
@@ -181,7 +190,7 @@ uv run pytest                                    # 87 tests: book, fill model, P
 uv run python scripts/build_events.py           # raw LOBSTER -> data/processed/.../events.parquet
 uv run python scripts/validate_replay.py        # must print zero top-of-book mismatches
 uv run python scripts/calibrate.py              # A, k, sigma_cal -> results/calibration/
-uv run python scripts/run_experiments.py        # E2 -> E1 -> E4 -> E5 -> results/<exp>/summary.csv + figures
+uv run python scripts/run_experiments.py        # E2 -> E1 -> E3 -> E4 -> results/<exp>/summary.csv + figures (E2 first: E1 uses its gamma)
 ```
 
 Raw LOBSTER files (`AAPL_2012-06-21_34200000_57600000_{message,orderbook}_10.csv`) go in `data/raw/`; see `data/README.md`.

@@ -1,6 +1,6 @@
-"""E1, E2, E4, E5. Writes results/<exp>/summary.csv and figures.
+"""E1–E4. Writes results/<exp>/summary.csv and figures.
 
-Order matters: E2 chooses gamma on the calibration window; E1/E4/E5 report it on
+Order matters: E2 chooses gamma on the calibration window; E1/E3/E4 report it on
 the evaluation window. Nothing here reads evaluation data to choose a parameter.
 """
 
@@ -31,7 +31,7 @@ from mm.strategy import ASQuoter, from_config  # noqa: E402
 GAMMA_GRID = [1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3]
 LATENCIES_MS = [0, 50, 100, 250, 500]
 CAP_BUDGET = 0.05  # E2 risk constraint: fraction of time at the inventory cap
-HYPOTHETICAL_FEES_BPS = [1.0, 10.0]  # E5 what-ifs (equities venue fee is 0)
+HYPOTHETICAL_FEES_BPS = [1.0, 10.0]  # E4 what-ifs (equities venue fee is 0)
 
 
 def run_cfg(cfg: dict, stream: list, window: str, name: str) -> tuple[RunResult, dict]:
@@ -257,8 +257,8 @@ def main() -> None:
         f"inventory std {m_nv['inventory_std']:.0f} vs {m_as['inventory_std']:.0f}"
     )
 
-    # ---- E4: fill-model sensitivity ------------------------------------------------
-    out = results / "E4"
+    # ---- E3: fill-model sensitivity ------------------------------------------------
+    out = results / "E3"
     out.mkdir(parents=True, exist_ok=True)
     rows = []
     with warnings.catch_warnings():
@@ -277,26 +277,26 @@ def main() -> None:
             _, m = run_cfg(cfg, stream, "evaluation", f"lat=100ms,off,through={tf}")
             m["latency_ms"], m["queue_cancel_model"], m["through_fill_model"] = 100, "off", tf
             rows.append(m)
-    e4 = pd.DataFrame(rows)
-    e4["through_fill_model"] = e4["through_fill_model"].fillna("full")
-    e4.to_csv(out / "summary.csv", index=False)
+    e3 = pd.DataFrame(rows)
+    e3["through_fill_model"] = e3["through_fill_model"].fillna("full")
+    e3.to_csv(out / "summary.csv", index=False)
     fig, ax = plt.subplots(figsize=(7, 3.8))
     for model, mk in (("off", "o-"), ("proportional", "s--")):
-        d = e4[(e4["queue_cancel_model"] == model) & (e4["through_fill_model"] == "full")]
+        d = e3[(e3["queue_cancel_model"] == model) & (e3["through_fill_model"] == "full")]
         ax.plot(d["latency_ms"], d["total_pnl"], mk, label=f"queue cancel model: {model}")
     ax.axvline(100, color=plotstyle.INK_2, lw=1, ls=":")
     ax.set_xlabel("latency (ms), applied to posts and cancels")
     ax.set_ylabel("A–S total PnL (USD)")
-    ax.set_title("E4: PnL vs latency and queue model (reported config: 100 ms, off)")
+    ax.set_title("E3: PnL vs latency and queue model (reported config: 100 ms, off)")
     ax.legend(loc="best")
     fig.tight_layout()
     fig.savefig(out / "pnl_vs_latency.png")
     plt.close(fig)
     shutil.copy(out / "pnl_vs_latency.png", readme_dir / "pnl_vs_latency.png")
-    print("E4: done")
+    print("E3: done")
 
-    # ---- E5: fees ------------------------------------------------------------------
-    out = results / "E5"
+    # ---- E4: fees ------------------------------------------------------------------
+    out = results / "E4"
     out.mkdir(parents=True, exist_ok=True)
     rows = []
     venue = float(as_cfg["engine"]["fee_bps"])
@@ -309,7 +309,7 @@ def main() -> None:
         m["fee_bps"] = bps
         rows.append(m)
     pd.DataFrame(rows).to_csv(out / "summary.csv", index=False)
-    print("E5: done")
+    print("E4: done")
 
 
 if __name__ == "__main__":
