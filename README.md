@@ -2,7 +2,7 @@
 
 An event-driven backtester that replays one day of NASDAQ order-book data (LOBSTER, AAPL, 2012-06-21), lets a quoting strategy rest two-sided limit orders, fills them under a conservative queue model with 100 ms latency, and decomposes PnL into **spread capture**, **inventory carry** and **adverse selection**. Two strategies run on identical data and fill assumptions: a **naive** symmetric quoter and **Avellaneda–Stoikov (2008)** inventory-skewed quoting, with $A$, $k$ and $\gamma$ estimated on a calibration window disjoint from the evaluation window.
 
-**Headline.** Inventory-aware quoting cut inventory standard deviation by **42 %** (378 → 219 shares) and time spent at the position cap from 27 % to 3 %, while retaining **71 %** of spread income. Neither strategy was profitable: the realised half-spread at 5 s was **−2.8 ticks against a quoted 4.0**, i.e. informed flow cost about **4.7 ticks per share** on a stock whose quoted spread averaged ~20 ticks. The decomposition shows *why* the closed-form A–S spread ($\approx 2/k \approx 7$ ticks) is too tight for this name, which is the interesting result, not the sign of the PnL. Two follow-ups: widening the naive quote to the touch (E5, width chosen on the calibration window) turns the evaluation-window loss into a small profit on a ninth of the fills, and leaning quotes on displayed book imbalance (E6) does nothing, because the displayed book carries no information about the next mid move on this feed.
+**Headline.** Inventory-aware quoting cut inventory standard deviation by **42 %** (378 → 219 shares) and time spent at the position cap from 27 % to 3 %, while retaining **71 %** of spread income. Neither strategy was profitable: A–S quoted a **4.0-tick** half-spread and realised **−2.8 ticks** at 5 s, a gap of **6.8 ticks per share** on a stock whose quoted spread averaged ~18 ticks. That gap splits into 2.1 ticks lost before the fill prints (the mid had already moved toward the resting order, through latency and through-fills) and **4.7 ticks of adverse selection** after it. The decomposition shows *why* the closed-form A–S spread ($\approx 2/k \approx 7$ ticks) is too tight for this name, which is the interesting result, not the sign of the PnL. Two follow-ups: widening the naive quote to just behind the touch (E5, width chosen on the calibration window) turns the evaluation-window loss into a small profit on a ninth of the fills, and leaning quotes on displayed book imbalance (E6) does nothing, because the displayed book carries no information about the next mid move on this feed.
 
 ![cumulative PnL](results/readme/cum_pnl.png)
 
@@ -10,7 +10,7 @@ An event-driven backtester that replays one day of NASDAQ order-book data (LOBST
 
 **Data.** LOBSTER free sample, AAPL, 2012-06-21, 10 levels: 400,391 messages → 634,638 canonical events (600,020 level updates, 34,618 trades with aggressor side). Prices are integer ticks (\$0.01), times int64 nanoseconds, quantities shares; no floats inside the engine. Replay of the event stream reproduces the source book with zero mismatches at all 10 levels (`scripts/validate_replay.py`). 372 hidden executions at sub-penny midpoints were dropped. Details in `data/README.md`.
 
-**Windows.** Calibration 09:30–12:06 (used for $A$, $k$, $\sigma_{\text{cal}}$ and the choice of $\gamma$), a 5-minute gap, evaluation 12:11–16:00 (reported). No reported parameter was chosen on evaluation data.
+**Windows.** Calibration 09:30–12:06 (used for $A$, $k$, $\sigma_{\text{cal}}$, $\beta$, and the choice of $\gamma$, the E5 width and the E6 lean), a 5-minute gap, evaluation 12:11–16:00 (reported). No reported parameter was chosen on evaluation data.
 
 **Fill model, stated bluntly.**
 - Our orders never move the historical book and never cross the spread (maker only).
@@ -25,7 +25,7 @@ $$
 \text{bid} = m - h, \qquad \text{ask} = m + h
 $$
 
-with $h$ set equal to the A–S half-spread at $q = 0$ (3 ticks), so E1 isolates the effect of inventory skew.
+with $h$ set to the A–S half-spread at $q = 0$ rounded to the grid ($\delta^\ast / 2 = 3.4 \to 3$ ticks), so that E1 compares the two quoters at the same width. The match is imperfect: A–S rounds its bid down and its ask up, so its time-weighted half-spread is 3.96 ticks against 3.21 for the naive quoter (E1 table). Naive is 0.75 ticks tighter, which accounts for part of its higher fill count; the skew comparison should be read with that in mind.
 
 Avellaneda–Stoikov (2008) takes the mid $s$, inventory $q$, volatility $\sigma$, risk aversion $\gamma$, fill-intensity decay $k$ and time-to-horizon $\tau = T - t$. The reservation price shifts the mid against the current position:
 
@@ -53,7 +53,7 @@ $$
 
 with $\beta$ in ticks per unit imbalance; $\beta = 0$ (the default, used everywhere except E6) is plain A–S.
 
-The horizon is held constant at $\tau = 60$ s, the standard practical choice, so $\gamma$ absorbs the scale instead of quotes collapsing to zero width at the close. Volatility is a 300 s trailing realised variance of the mid sampled every 1 s to suppress microstructure noise:
+The horizon is held constant at $\tau = 60$ s, the standard practical choice, so $\gamma$ absorbs the scale. Under the paper's finite horizon the skew and the risk term fade to zero at the close and the spread tends to its fill-intensity term, about $2/k$, which produces end-of-session artefacts. Volatility is a trailing realised variance of the mid over a window of $W = 300$ s, sampled every 1 s to suppress microstructure noise, with $\Delta m_j$ the sampled mid changes in that window:
 
 $$
 \hat\sigma^2 = \frac{1}{W}\sum_{j}\left(\Delta m_j\right)^2, \qquad \sigma = \sqrt{\hat\sigma^2}
@@ -67,13 +67,13 @@ $$
 \lambda(\delta) = A\,e^{-k\delta}
 $$
 
-For $\delta = 1, \dots, 40$ ticks, count the trades in the calibration window that would have filled a resting order at $\text{mid} \pm \delta$ (prints at or through that price by the opposite aggressor), divide by the window length to get $\hat\lambda(\delta)$ per second, pool the two sides, and fit by OLS over grid points with at least 30 events:
+For $\delta = 1, \dots, 40$ ticks, count the trades in the calibration window that would have filled a resting order at $\text{mid} \pm \delta$ (prints at or through that price by the opposite aggressor), divide by the window length to get $\hat\lambda(\delta)$ per second, average the two sides, and fit by OLS over grid points with at least 30 events:
 
 $$
 \ln\hat\lambda(\delta) = \ln A - k\,\delta
 $$
 
-Result: $A = 1.53$ fills/s, $k = 0.293$ per tick, $R^2 = 0.987$ on $\delta \in [1, 21]$; $\sigma_{\text{cal}} = 4.09$ $\text{ticks}/\sqrt{\text{s}}$. Buy aggressors reach further from the mid than sellers (visible in the figure); sides are pooled.
+Result: $A = 1.53$ fills/s, $k = 0.293$ per tick, $R^2 = 0.987$ on $\delta \in [1, 21]$; $\sigma_{\text{cal}} = 4.09$ $\text{ticks}/\sqrt{\text{s}}$. Buy aggressors reach further from the mid than sellers (visible in the figure); sides are averaged, so $A$ is a per-side rate.
 
 For E6 the same script also regresses the mid move over the next 5 s on the touch imbalance sampled every second: $\beta = 0.24$ ticks per unit imbalance, $R^2 = 0.000$ on 9,354 samples. The displayed touch has no predictive power here; E6 therefore sweeps the lean size directly rather than trusting this slope.
 
@@ -103,17 +103,17 @@ $$
 \text{PnL}_T = \sum_{\text{fills}} \text{SC} + \text{IC}_T - \text{Fees}_T
 $$
 
-Adverse selection at horizon $\tau$ is the mid move against us after each fill,
+Adverse selection at horizon $\Delta t$ is the mid move against us after each fill,
 
 $$
-\text{AS}_\tau = \begin{cases} (m_{t_f} - m_{t_f + \tau})\,x & \text{buy} \\ (m_{t_f + \tau} - m_{t_f})\,x & \text{sell} \end{cases}
+\text{AS}_{\Delta t} = \begin{cases} (m_{t_f} - m_{t_f + \Delta t})\,x & \text{buy} \\ (m_{t_f + \Delta t} - m_{t_f})\,x & \text{sell} \end{cases}
 $$
 
-reported at $\tau \in \{1, 5, 30\}$ s. The realised spread at horizon $\tau$ is $\text{SC} - \text{AS}_\tau$; the gap between the quoted half-spread and the realised half-spread is the headline "cost of informed flow" number.
+reported at $\Delta t \in \{1, 5, 30\}$ s. The realised spread at horizon $\Delta t$ is $\text{SC} - \text{AS}_{\Delta t}$. The gap between the quoted half-spread and the realised half-spread is the headline "cost of informed flow" number; it splits into the part lost before the fill prints (quoted half-spread minus per-share SC, because the mid can move toward a resting order before it is hit) and the part lost after ($\text{AS}_{\Delta t}$).
 
 ## Results (evaluation window, 12:11–16:00)
 
-**Experiments.** Six experiments, each answering one question on the same data and fill model. All parameters were fixed on the calibration window before any evaluation-window result was looked at.
+**Experiments.** Six experiments, each answering one question on the same data and fill model. No parameter value was chosen using evaluation-window data: every swept quantity is selected on the calibration window and run once on evaluation. E5 and E6 were designed after E1's evaluation results showed the size of the adverse selection, so they are follow-ups, not pre-registered.
 
 | | question | window |
 |---|---|---|
@@ -147,7 +147,7 @@ reported at $\tau \in \{1, 5, 30\}$ s. The realised spread at horizon $\tau$ is 
 ![inventory paths](results/readme/inventory.png)
 ![decomposition](results/readme/decomposition.png)
 
-Reading the decomposition: both strategies earn a positive spread against the mid at fill time, then lose it (and more) as the mid moves against the position they just acquired. Adverse selection at 5 s exceeds spread capture by a factor of ~2 for both. The A–S skew keeps inventory near zero (mean 13 shares vs 58) and almost never touches the cap, but it pays for that by quoting the unwinding side closer to the mid, so it captures 1.85 ticks per share against 2.47 for the naive quoter. Inventory carry is roughly unchanged despite the much smaller inventory, because most of the carry *is* adverse selection: the position is largest exactly when the price is about to move against it. Skewing quotes on inventory does not fix that; wider spreads or adverse-selection-aware quoting would.
+Reading the decomposition: both strategies earn a positive spread against the mid at fill time, then lose it (and more) as the mid moves against the position they just acquired. Adverse selection at 5 s exceeds spread capture by a factor of 2.0 (naive) and 2.5 (A–S). The A–S skew keeps inventory near zero (mean 13 shares vs 58) and almost never touches the cap, but it pays for that by quoting the unwinding side closer to the mid, so it captures 1.85 ticks per share against 2.47 for the naive quoter, despite quoting 0.75 ticks wider on average. Inventory carry is roughly unchanged despite the much smaller inventory, because most of the carry *is* adverse selection: the position is largest exactly when the price is about to move against it. Skewing quotes on inventory does not fix that; wider spreads or adverse-selection-aware quoting would.
 
 ### E2 — choosing $\gamma$ (calibration window only)
 
@@ -172,7 +172,7 @@ The spec's selection rule (PnL per unit inventory std) degenerates when every $\
 
 Through-fill rule at 100 ms: full-order fill (spec, reported) −8,169 USD with 2,935 fills; capped at the print size −7,438 USD with 4,190 (smaller) fills.
 
-Zero latency is *worse* here, not better: it produces more fills, and fills are loss-making on average. The queue-cancel model moves PnL by < 3 %. The reported configuration (100 ms, cancels from behind, full through-fills) is the conservative one for fill *rates*; the results do not hinge on it.
+Zero latency is *worse* here, not better: it produces more fills, and fills are loss-making on average. The queue-cancel model moves PnL by < 3 %. The reported configuration (100 ms, cancels from behind) is the conservative choice for fill *rates*; the full through-fill rule is the aggressive choice for fill *size*, and its alternative is shown above. The results do not hinge on either.
 
 ![pnl vs latency](results/readme/pnl_vs_latency.png)
 
@@ -210,7 +210,7 @@ $h = 12$ has the best calibration PnL and is then run once on the evaluation win
 
 ![spread sweep](results/readme/spread_sweep.png)
 
-The adverse-selection column is the point: the post-fill move is 5 to 7 ticks at every width. Widening does not make the flow less informed. It only raises what each fill captures until that covers the loss, which happens around the touch (the spread averaged 18 to 20 ticks, so the best quotes sit 9 to 10 ticks from mid). Past 15 ticks fills dry up and PnL returns to zero. At $h = 12$ the realised half-spread at 5 s is still about zero, yet total PnL is positive because inventory carry over the full holding period is only about 1 tick per share: part of the 5 s move reverts later. Widening turns a loss into a small profit on a ninth of the fills. It is a price lever, not a prediction.
+The adverse-selection column is the point: the post-fill move is 5 to 7 ticks at every width. Widening does not make the flow less informed. It only raises what each fill captures until that covers the loss, which happens around the touch (the spread averaged about 18 ticks, so the best quotes sit about 9 ticks from mid; $h = 12$ rests 2 to 3 ticks behind them in an existing queue). Past 15 ticks fills dry up and PnL returns to zero. At $h = 12$ the realised half-spread at 5 s is still about zero, yet total PnL is positive because part of the 5 s move reverts: adverse selection falls from 5.27 ticks at 5 s to 4.06 at 30 s, so the realised half-spread at 30 s is +1.0 tick, and inventory carry over the window is only −107 USD. Widening turns a loss into a small profit on a ninth of the fills. The +1,378 USD on 343 fills over four hours is within noise for a single day; the robust finding is the shape of the curve, not the sign. It is a price lever, not a prediction.
 
 ### E6 — leaning on book imbalance (adverse-selection-aware skew)
 
