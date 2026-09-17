@@ -1,8 +1,8 @@
 # Base configuration for mmsim. Strategy configs (naive.yaml, as_default.yaml)
 # are merged on top of this by scripts/run_backtest.py.
 #
-# Values marked PLACEHOLDER are finalised at M1 once the LOBSTER files are
-# on disk and validate_replay.py has passed.
+# All values below are final for the LOBSTER AAPL 2012-06-21 dataset; see
+# data/README.md for provenance and the fee decision.
 
 dataset:
   name: lobster_aapl_2012-06-21          # Apple AAPL
@@ -42,8 +42,8 @@ engine:
   q_max: 500                             # shares, inventory cap
   queue_cancel_model: "off"              # "off" | proportional (quoted: bare off is YAML false)
   through_fill_model: full               # full (§6.3: a print through our level fills us entirely) | trade_qty
-  # Fees are always charged. Equities maker fee is a PLACEHOLDER until
-  # data/README.md records the venue schedule (NASDAQ rebates makers; we use 0).
+  # Fees are always charged. NASDAQ paid displayed makers a rebate in 2012;
+  # we ignore it and use 0 bps so PnL is not flattered (see data/README.md).
   fee_bps: 0.0
 
 pnl:
